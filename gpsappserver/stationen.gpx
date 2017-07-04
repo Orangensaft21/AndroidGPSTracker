@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.0">
+	<name>Example gpx</name>
+	<wpt lat="49.977376" lon="7.081916">
+		<ele>2372</ele>
+		<name>Rob Schum Karthäuser</name>
+	</wpt>
+	<trk><name>Example gpx</name><number>1</number><trkseg>
+		
+		<trkpt lat="49.977498" lon="7.082554"><ele>2375</ele><time>2007-10-14T10:09:58Z</time></trkpt>
+		<trkpt lat="49.977127" lon="7.082847"><ele>2372</ele><time>2007-10-14T10:09:59Z</time></trkpt>
+		<trkpt lat="49.975834" lon="7.080333"><ele>2373</ele><time>2007-10-14T10:10:00Z</time></trkpt>
+		<trkpt lat="49.976496" lon="7.079528"><ele>2374</ele><time>2007-10-14T10:10:01Z</time></trkpt>
+		<trkpt lat="49.977376" lon="7.081916"><ele>2376</ele><time>2007-10-14T10:09:57Z</time></trkpt>
+
+	</trkseg></trk>
+</gpx>
+
