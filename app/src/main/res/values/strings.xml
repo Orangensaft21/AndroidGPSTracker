@@ -1,5 +1,8 @@
 <resources>
     <string name="app_name">Fuck you App!</string>
-    <string name="title_activity_main2">Main2Activity</string>
-    <string name="title_activity_musik">MusikActivity</string>
+    <string name="Route1">Robert Schumann Route</string>
+    <string name="Route2">Norma Route</string>
+    <string name="Route3">Sportplatz Runde</string>
+    <string name="Route4">Neukauf Hin</string>
+    <string name="action_settings">Settings</string>
 </resources>

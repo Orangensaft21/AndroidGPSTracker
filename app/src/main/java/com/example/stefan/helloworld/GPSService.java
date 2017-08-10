@@ -10,38 +10,57 @@ import android.location.LocationManager;
 import android.os.Binder;
 import android.os.Bundle;
 import android.os.IBinder;
+import android.os.SystemClock;
 import android.speech.tts.TextToSpeech;
 import android.support.v4.content.ContextCompat;
 import android.util.Log;
+import android.widget.Toast;
 
-import org.json.JSONArray;
-import org.json.JSONObject;
-
-import java.net.URISyntaxException;
 import java.util.ArrayList;
-import java.util.List;
 import java.util.Locale;
 
-import io.socket.client.IO;
-import io.socket.client.Socket;
-import io.socket.emitter.Emitter;
+public class GPSService extends Service implements LocationListener,TextToSpeech.OnInitListener,SocketListener{
 
-public class GPSService extends Service implements LocationListener,TextToSpeech.OnInitListener{
 
     private final IBinder gpsBinder = new GPSServiceBinder();  // binder is sowas wie ne bridge vom client zum service
     private static final String TAG = "HermGPSservice";
     private static final String broadcastIntent = "GPSintent";
     private TextToSpeech tts;
-    private Socket socket;
+    private SocketHelper sock;
     private String zwZeiten="";
+    private Route route;
 
-    boolean started=false;
-    List<Checkpoint> checkpointList = new ArrayList<Checkpoint>();
+
+
+    //private String routeName="";
+
+    private boolean started=false;
+    private ArrayList<Checkpoint> checkpointList = new ArrayList<Checkpoint>(); // wird vom Socket Helper gesetzt
 
     final float ACCURACY = 20f;
+    private Location currentLoc;
+
+
+
+
+    long startTime;
 
     public GPSService() {
 
+    }
+
+    public void getSocketResult(Object... args){
+        switch ((String) args[0]){
+            case "setRoute":
+                setRoute((Route)args[1]);
+                break;
+            case "zieldurchsage":
+                String r = (String) args[1];
+                tts.setSpeechRate(0.5f);
+                tts.speak(r, TextToSpeech.QUEUE_ADD,null,null);
+                tts.setSpeechRate(1f);
+                break;
+        }
     }
 
     @Override
@@ -49,11 +68,9 @@ public class GPSService extends Service implements LocationListener,TextToSpeech
 
         tts = new TextToSpeech(this,this); // geht irgendwie nur in OnCreate, Lenz fragen
         super.onCreate();
-        socketInit();
-        socket.connect();
-        SocketUtil.socket = socket;
-        //route "route" abfragen
-        socket.emit("reqcheck","route");
+
+        sock = SocketHelper.getInstance(this);
+        //socket = sock.getSocket();
 
         LocationManager locationManager = (LocationManager) this.getSystemService(Context.LOCATION_SERVICE);
         ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION);
@@ -63,12 +80,33 @@ public class GPSService extends Service implements LocationListener,TextToSpeech
 
     public void start() {
 
+        if (nextCheck==null){
+            Toast.makeText(getApplicationContext(),"Server nicht gestartet!",Toast.LENGTH_LONG);
+            Log.e(TAG,"server nicht gestartet/keine Daten");
+            return;
+        }
+        Log.e(TAG,"sttaaarrtt");
+        Log.e(TAG,""+insideCheck);
+        Log.e(TAG,""+nextCheck.getLoc());
+        Log.e(TAG,""+currentLoc);
+
         if (insideCheck && nextCheck == checkpointList.get(0)) {
+            startTime=SystemClock.elapsedRealtime() ;
             started=true;
             sendStringToClient("started","true");
             tts.speak("Start!", TextToSpeech.QUEUE_ADD, null, null);
             nextCheck = checkpointList.get(1); // 1 check hinter dem start
         }
+    }
+
+    public void reset() {
+        if (started)
+            nextCheck = checkpointList.get(0);
+        for (Checkpoint check:checkpointList){
+            check.reset();
+        }
+        started=false;
+
     }
 
 
@@ -77,36 +115,55 @@ public class GPSService extends Service implements LocationListener,TextToSpeech
 
     @Override
     public void onLocationChanged(Location location) {
+        //abfrage ob server gestartet, vllt woanders rein
+        currentLoc=location;
+        if(nextCheck!=null)
+            insideCheck = nextCheck.getLoc().distanceTo(location)<(ACCURACY);
 
-        insideCheck = nextCheck.getLoc().distanceTo(location)<(ACCURACY);
+        Log.v(TAG,"elapsed Time: " + getElapsedTime());
 
         // Arbeit/Batterie einsparen
         if(!started) {
             return;
         }
         sendStringToClient("location",location.getLatitude()+","+location.getLongitude());
-        SocketUtil.emitPosition(location);
+        sock.emitPosition(location);
 
-        //ziel erreicht
-        if (insideCheck && nextCheck.getSpot()==1){
-            setZwischenzeitenText(true);
-            started=false;
-            tts.speak("finish",TextToSpeech.QUEUE_ADD,null,null);
-            sendStringToClient("finished",zwZeiten);
-            return;
-        }
-
-        //Nächster Checkpoint erreicht
-        if (insideCheck){
-            nextCheck.visit("00:01");
-            setZwischenzeitenText(false);
-            tts.speak(nextCheck.toSpeech(),TextToSpeech.QUEUE_ADD,null,null);
-            nextCheck=getNextCheck(); //getSpot liefert (buggy) einen eine location weiter aus
-            sendStringToClient("Zwischenzeiten",zwZeiten);
-        }
+        if (zielErreicht()) return;
+        checkpointReached();
+        Log.e(TAG,location.toString());
+        Log.e(TAG,nextCheck.toString());
 
     }
 
+    private void checkpointReached() {
+        if (insideCheck){
+            nextCheck.visit(getElapsedTime());
+            setZwischenzeitenText(false);
+            tts.speak(nextCheck.toSpeech(), TextToSpeech.QUEUE_ADD,null,null);
+            nextCheck=getNextCheck(); //getSpot liefert (buggy) einen eine location weiter aus
+            sendStringToClient("Zwischenzeiten",zwZeiten);
+        }
+    }
+
+    private boolean zielErreicht() {
+        if (insideCheck && nextCheck.getSpot()==1){
+            nextCheck.visit(getElapsedTime());
+            setZwischenzeitenText(true);
+            sock.emitLap("Stefan",getElapsedTime(),checkpointList,route.getName());
+            started=false;
+            tts.speak("finish", TextToSpeech.QUEUE_ADD,null,null);
+            sendStringToClient("finished",zwZeiten);
+
+            //start StatActivity
+            Intent i = new Intent(this,StatActivity.class);
+            i.putExtra("nick","Stefan");
+            i.putExtra("RouteParcel",route);
+            startActivity(i);
+            return true;
+        }
+        return false;
+    }
 
 
     @Override
@@ -124,6 +181,11 @@ public class GPSService extends Service implements LocationListener,TextToSpeech
 
     }
 
+    public void setCheckpointList(ArrayList<Checkpoint> checks){
+
+
+    }
+
     private void setZwischenzeitenText(boolean finished){
         zwZeiten="";
         for (Checkpoint check:checkpointList){
@@ -135,7 +197,7 @@ public class GPSService extends Service implements LocationListener,TextToSpeech
             }
         }
         if (finished){
-            zwZeiten += "\n"+"LAPTIME "+"00:21";
+            zwZeiten += "\n"+"LAPTIME "+millisToDate(getElapsedTime());
         }
     }
 
@@ -149,64 +211,45 @@ public class GPSService extends Service implements LocationListener,TextToSpeech
         tts.setLanguage(new Locale("en_US"));
     }
 
-    public void socketInit(){
-
-        try {
-            socket = IO.socket("http://84.166.15.95:3002");
-            Log.v(TAG,"socket initialisiert");
-        } catch (URISyntaxException e) {
-            e.printStackTrace();
-        }
-
-        socket.on("route", new Emitter.Listener(){
-            @Override
-            public void call(Object... args) {
-                JSONObject r = (JSONObject) args[0];
-
-                try {
-                    Log.v(TAG,"Checkpoints werden empfangen");
-                    JSONArray checkpoints = (JSONArray) r.get("checkpoints");
-
-                    //start
-                    //start = new Location("gps");
-                    //start.setLatitude((double) checkpoints.getJSONObject(0).get("lat"));
-                    //start.setLongitude((double) checkpoints.getJSONObject(0).get("lon"));
-
-
-                    for (int i = 0; i < checkpoints.length(); i++) {
-                        JSONObject checkpoint = checkpoints.getJSONObject(i);
-                        int spot = (int) checkpoint.get("spot");
-                        Location loc = new Location("gps");
-                        loc.setLatitude((double)checkpoint.get("lat"));
-                        loc.setLongitude((double)checkpoint.get("lon"));
-                        checkpointList.add(new Checkpoint(spot,loc));
-                    }
-
-                    nextCheck = checkpointList.get(0);
-                    //Log.e(TAG,"start"+start.getLatitude()+" "+start.getLongitude());
-                    Log.e(TAG,checkpointList.toString());
-                }
-                catch (Exception e) {System.err.println(e.getMessage());}
-            }
-        });
-
-        socket.on("zieldurchsage", new Emitter.Listener(){
-            @Override
-            public void call(Object... args) {
-                tts.setSpeechRate(0.5f);
-                String r = (String) args[0];
-                tts.speak(r,TextToSpeech.QUEUE_ADD,null,null);
-                tts.setSpeechRate(1f);
-            }
-        });
-    }
-
-
 
     private void sendStringToClient(String reason, String data){
         Intent i = new Intent(broadcastIntent);
         i.putExtra(reason,data);
         sendBroadcast(i);
+    }
+
+    public long getElapsedTime() {
+        if (!started)
+            return 0;
+        return SystemClock.elapsedRealtime() -startTime;
+    }
+
+    public void reqRoute(String s){
+        sock.getSocket().emit("reqcheck",s);
+    }
+
+    public boolean isStarted() {
+        return started;
+    }
+
+    public long getStartTime() {
+        return startTime;
+    }
+
+    public TextToSpeech getTts() {
+        return this.tts;
+    }
+
+    public Route getRoute() {
+        return route;
+    }
+
+    public void setRoute(Route route) {
+        this.route = route;
+        checkpointList = route.getCheckpointList();
+        //nextCheck ist momentan noch immer auf 0 gesetzt
+        nextCheck = route.getNextCheck();
+        onLocationChanged(currentLoc);
     }
 
     public class GPSServiceBinder extends Binder {
@@ -219,5 +262,13 @@ public class GPSService extends Service implements LocationListener,TextToSpeech
     @Override
     public IBinder onBind(Intent intent) {
         return gpsBinder;
+    }
+
+    public String millisToDate(long millis){
+        long hsec = ( millis / 10 ) % 100;
+        long s = millis / 1000;
+        long seconds = s % 60;
+        long minutes = ( s / 60 ) % 60;
+        return String.format("%02d:%02d.%02d",minutes,seconds,hsec);
     }
 }

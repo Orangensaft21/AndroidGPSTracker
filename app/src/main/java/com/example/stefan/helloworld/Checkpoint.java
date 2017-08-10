@@ -1,17 +1,24 @@
 package com.example.stefan.helloworld;
 
 import android.location.Location;
+import android.os.Parcel;
+import android.os.Parcelable;
 
 /**
  * Created by stefan on 18.06.17.
  */
 
-public class Checkpoint {
+public class Checkpoint implements Parcelable{
 
-    Location loc;
-    int spot;
-    String durchgangszeit="";
-    boolean visited;
+    /*
+    CHECKPOINT CLASS: Speichert alle verfügbaren Daten über den Checkpoint,
+    inklusive Highscores.
+     */
+
+    private Location loc;  
+    private int spot;
+    private long durchgangszeit=0;
+    private boolean visited;
 
     public Checkpoint(int spot, Location loc) {
         this.loc = loc;
@@ -19,13 +26,35 @@ public class Checkpoint {
         this.visited = false;
     }
 
+    /*
+    Parcellable Konstruktor und Creator, automatisch generiert
+     */
 
-    public synchronized void visit(String time){
-        if (isVisited()) //onLocationchanged kann mehrfach aufgerufen werden
+    protected Checkpoint(Parcel in) {
+        loc = in.readParcelable(Location.class.getClassLoader());
+        spot = in.readInt();
+        durchgangszeit = in.readLong();
+        visited = in.readByte() != 0;
+    }
+
+    public static final Creator<Checkpoint> CREATOR = new Creator<Checkpoint>() {
+        @Override
+        public Checkpoint createFromParcel(Parcel in) {
+            return new Checkpoint(in);
+        }
+
+        @Override
+        public Checkpoint[] newArray(int size) {
+            return new Checkpoint[size];
+        }
+    };
+
+    public synchronized void visit(long time){
+        if (isVisited())
             return;
         System.err.println("checkpoint"+spot+" reached");
         this.visited=true;
-        durchgangszeit=time;
+        setDurchgangszeit(time);
 
     }
 
@@ -57,25 +86,47 @@ public class Checkpoint {
                 '}';
     }
 
+    /*
+    Sprachdurchsage erstellen
+     */
+
     public String toSpeech() {
-        String[] s = durchgangszeit.split(":");
+        String[] s = getDurchgangszeit().split(":");
         int minutes = Integer.parseInt(s[0]);
-        int seconds = Integer.parseInt(s[1]);
-        String secondText = (seconds==1)?seconds+" Second":seconds+" Seconds";
+        String secondText = Float.parseFloat(s[1])+" Seconds";
         String minuteText = (minutes==0)?"":((minutes==1)?minutes+" Minute":minutes+" Minutes");
         return "Checkpoint "+getSpot()+" "+minuteText+secondText;
     }
 
     public String getDurchgangszeit() {
-        return durchgangszeit;
+        return Utility.millisToDate(durchgangszeit);
     }
 
-    public void setDurchgangszeit(String durchgangszeit) {
+    public Long getDurchgangszeitMillis() { return durchgangszeit;}
+
+    public void setDurchgangszeit(long durchgangszeit) {
         this.durchgangszeit = durchgangszeit;
     }
 
     public void reset(){
-        durchgangszeit="";
+        durchgangszeit=0;
         visited=false;
+    }
+
+    /*
+    Parcellable Methoden, automatisch generiert
+     */
+
+    @Override
+    public int describeContents() {
+        return 0;
+    }
+
+    @Override
+    public void writeToParcel(Parcel parcel, int i) {
+        parcel.writeParcelable(loc, i);
+        parcel.writeInt(spot);
+        parcel.writeLong(durchgangszeit);
+        parcel.writeByte((byte) (visited ? 1 : 0));
     }
 }

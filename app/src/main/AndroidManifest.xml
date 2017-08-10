@@ -27,7 +27,13 @@
         <service
             android:name=".GPSService"
             android:enabled="true"
-            android:exported="true"></service>
+            android:exported="true" />
+
+        <activity
+            android:name=".StatActivity"
+            android:exported="true" />
+        <activity android:name=".MenuActivity"
+                  android:exported="true"></activity>
     </application>
 
 </manifest>
