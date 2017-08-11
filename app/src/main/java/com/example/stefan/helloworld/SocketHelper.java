@@ -20,8 +20,14 @@ import io.socket.emitter.Emitter;
  */
 
 /*
-* Interface methode call("route", params)
-*
+  Diese Klasse regelt die Kommunikation mit dem Node.js Server über Socket.io für
+  alle Activities und Services.
+  Sie implementiert das Singleton Design Pattern, damit sie nur einmal existiert
+  und für alle Activities/Services zur Verfügung steht.
+  Desweiteren implementiert sie das Observer Design Pattern. Hierdurch kann sie
+  auf den Listernern, die ein Interface implementiert müssen, Methoden aufrufen.
+  Interface methode call("route", params)
+
  */
 
 public class SocketHelper {
